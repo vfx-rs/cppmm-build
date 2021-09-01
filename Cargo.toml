@@ -1,6 +1,6 @@
 [package]
 name = "cppmm-build"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2018"
 description="Build utilities for cppmm-based projects"
 license="BSD-3-Clause"
@@ -8,6 +8,6 @@ authors = ["Anders Langlands <anderslanglands@gmail.com>"]
 
 
 [dependencies]
-cmake = "0.1.45"
-regex = "1.5.4"
-quick-xml = "0.22.0"
+cmake = "^0.1"
+regex = "^1.5"
+quick-xml = "^0.22"

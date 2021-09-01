@@ -26,7 +26,7 @@ pub fn build_thirdparty(
     let mut config = cmake::Config::new(&format!("thirdparty/{}", name));
     config.profile(profile);
     config.define("CMAKE_INSTALL_PREFIX", target_dir.to_str().unwrap());
-    config.always_configure(false);
+    config.define("CMAKE_PREFIX_PATH", target_dir.join("lib").join("cmake"));
     config.out_dir(&out_dir);
 
     for def in definitions {
@@ -342,14 +342,12 @@ pub fn build(project_name: &str, major_version: u32, minor_version: u32, depende
             .define("CMAKE_EXPORT_COMPILE_COMMANDS", "ON")
             .define("CMAKE_PREFIX_PATH", cmake_prefix_path.to_str().unwrap())
             .profile(&build_type)
-            .always_configure(false)
             .build()
     } else {
         println!("cargo:warning=Using system dependencies {:?}", dependencies);
         cmake::Config::new(clib_name)
             .define("CMAKE_EXPORT_COMPILE_COMMANDS", "ON")
             .profile(&build_type)
-            .always_configure(false)
             .build()
     };
 
