@@ -52,33 +52,57 @@ pub struct DylibPathInfo {
     pub libname: String,
 }
 
+#[derive(Debug)]
+pub enum LinkArg {
+    LinkDir(String),
+    LinkLib(String),
+    Path(DylibPathInfo),
+}
+
 #[cfg(not(target_os = "windows"))]
-fn is_dylib_path(s: &str, re: &Regex) -> Option<DylibPathInfo> {
-    if let Some(m) = re.captures_iter(s).next() {
+fn is_dylib_path(s: &str, re: &Regex) -> Option<LinkArg> {
+    if let Ok(_) = std::env::var("CPPMM_DEBUG_BUILD") {
+        println!("cargo:warning=- {}", s);
+    }
+    
+    if let Some(pos @ 0) = s.find("-l") {
+        return Some(LinkArg::LinkLib(s[2..].to_string()))
+    } else if let Some(pos @ 0) = s.find("-L") {
+        if let Ok(_) = std::env::var("CPPMM_DEBUG_BUILD") {
+            println!("cargo:warning=    is a link dir {}", s);
+        }
+        return Some(LinkArg::LinkDir(s[2..].to_string()))
+    } else if let Some(m) = re.captures_iter(s).next() {
         if let Some(c0) = m.get(0) {
             if let Some(c1) = m.get(1) {
-                return Some(DylibPathInfo {
+                if let Ok(_) = std::env::var("CPPMM_DEBUG_BUILD") {
+                    println!("cargo:warning=    is a dylib path {}", s);
+                }
+                return Some(LinkArg::Path(DylibPathInfo {
                     path: s.to_string(),
                     basename: c0.as_str().to_string(),
                     libname: c1.as_str().to_string(),
-                });
+                }));
             }
         }
+    }
+    if let Ok(_) = std::env::var("CPPMM_DEBUG_BUILD") {
+        println!("cargo:warning=    is not a dylib path");
     }
 
     None
 }
 
 #[cfg(target_os = "windows")]
-fn is_dll_lib_path(s: &str, re: &Regex) -> Option<DylibPathInfo> {
+fn is_dll_lib_path(s: &str, re: &Regex) -> Option<LinkArg> {
     if let Some(m) = re.captures_iter(s).next() {
         if let Some(c0) = m.get(0) {
             if let Some(c1) = m.get(1) {
-                return Some(DylibPathInfo {
+                return Some(LinkArg::Path(DylibPathInfo {
                     path: s.to_string(),
                     basename: c0.as_str().to_string(),
                     libname: c1.as_str().to_string(),
-                });
+                }));
             }
         }
     }
@@ -91,7 +115,7 @@ fn get_linking_from_vsproj(
     build_path: &Path,
     clib_versioned_name: &str,
     build_type: &str,
-) -> Option<Vec<DylibPathInfo>> {
+) -> Option<Vec<LinkArg>> {
     use quick_xml::events::{BytesEnd, BytesStart, Event};
     use quick_xml::Reader;
     use std::borrow::Borrow;
@@ -169,7 +193,7 @@ fn get_linking_from_vsproj(
 fn get_linking_from_nmake(
     build_path: &Path,
     clib_versioned_name: &str,
-) -> Option<Vec<DylibPathInfo>> {
+) -> Option<Vec<LinkArg>> {
     let build_make_path = build_path
         .join("CMakeFiles")
         .join(format!("{}-shared.dir", clib_versioned_name))
@@ -210,7 +234,7 @@ pub fn get_linking_from_cmake(
     build_path: &Path,
     clib_versioned_name: &str,
     build_type: &str,
-) -> Vec<DylibPathInfo> {
+) -> Vec<LinkArg> {
     if let Some(libs) =
         get_linking_from_vsproj(build_path, clib_versioned_name, build_type)
     {
@@ -229,7 +253,7 @@ pub fn get_linking_from_cmake(
     build_path: &Path,
     clib_versioned_name: &str,
     _build_type: &str,
-) -> Vec<DylibPathInfo> {
+) -> Vec<LinkArg> {
     let link_txt_path = build_path
         .join("CMakeFiles")
         .join(format!("{}.dir", clib_versioned_name))
@@ -238,6 +262,10 @@ pub fn get_linking_from_cmake(
         "Could not read link_txt_path: {}",
         link_txt_path.display()
     ));
+
+    if let Ok(_) = std::env::var("CPPMM_DEBUG_BUILD") {
+        println!("cargo:warning=Reading link.txt {}", link_txt);
+    }
 
     let re = Regex::new(
         r"lib([^/]+?)(?:\.dylib|\.so|\.so.\d+|\.so.\d+.\d+|\.so.\d+.\d+.\d+)$",
@@ -353,11 +381,12 @@ pub fn build(project_name: &str, major_version: u32, minor_version: u32, depende
 
     let build_path = Path::new(&dst).join("build");
 
-    let dylibs = get_linking_from_cmake(
+    let link_args = get_linking_from_cmake(
         &build_path,
         &clib_shared_versioned_name,
         &build_type,
     );
+    println!("cargo:warning=Link libs: {:?}", link_args);
 
     // Link our wrapper library
     //
@@ -402,11 +431,21 @@ pub fn build(project_name: &str, major_version: u32, minor_version: u32, depende
         println!("cargo:rustc-link-search=native={}", bin_path.display());
     }
 
-    for d in dylibs {
+    for arg in link_args {
         // Link against all our dependencies
-        let libdir = Path::new(&d.path).parent().unwrap();
-        println!("cargo:rustc-link-search=native={}", libdir.display());
-        println!("cargo:rustc-link-lib=dylib={}", &d.libname);
+        match arg {
+            LinkArg::Path(d) => {
+                let libdir = Path::new(&d.path).parent().unwrap();
+                println!("cargo:rustc-link-search=native={}", libdir.display());
+                println!("cargo:rustc-link-lib=dylib={}", &d.libname);
+            }
+            LinkArg::LinkDir(dir) => {
+                println!("cargo:rustc-link-search=native={}", dir);
+            }
+            LinkArg::LinkLib(lib) => {
+                println!("cargo:rustc-link-lib=dylib={}", lib);
+            }
+        }
     }
 
     // On unices we need to link against the stdlib

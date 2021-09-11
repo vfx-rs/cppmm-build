@@ -1,6 +1,6 @@
 [package]
 name = "cppmm-build"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2018"
 description="Build utilities for cppmm-based projects"
 license="BSD-3-Clause"
